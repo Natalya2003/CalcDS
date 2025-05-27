@@ -45,13 +45,9 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadTariffs() {
     try {
         const now = Date.now();
-        if (now - lastCacheTime < CACHE_TTL && tariffs.length > 0) {
-            showLoading(false);
-            return;
-        }
+        if (now - lastCacheTime < CACHE_TTL && tariffs.length > 0) return;
 
         showLoading(true);
-
         const response = await fetch(`${APPS_SCRIPT_URL}?action=getTariffs&t=${now}`, { method: 'GET', cache: 'no-cache' });
         const data = await response.json();
 
@@ -62,11 +58,10 @@ async function loadTariffs() {
             throw new Error(data.message || 'Invalid data format');
         }
 
+        showLoading(false);
     } catch (error) {
         console.error('Ошибка загрузки тарифов:', error);
         elements.loading.innerHTML = `<div class="error">Ошибка: ${error.message}</div>`;
-    } finally {
-        showLoading(false);
     }
 }
 

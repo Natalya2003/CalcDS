@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Калькулятор фулфилмента</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Калькулятор стоимости фулфилмента</h1>
+        
+        <div class="calculator">
+            <div class="input-section">
+                <h2>Параметры расчета</h2>
+                
+                <div class="form-group">
+                    <label for="model">Модель фулфилмента*</label>
+                    <select id="model" required>
+                        <option value="">Выберите модель</option>
+                        <option value="FBO">FBO (Fulfillment by Ozon)</option>
+                        <option value="FBS">FBS (Fulfillment by Seller)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="country">Страна*</label>
+                    <select id="country" required>
+                        <option value="">Выберите страну</option>
+                        <option value="Россия">Россия</option>
+                        <option value="Казахстан">Казахстан</option>
+                        <option value="Беларусь">Беларусь</option>
+                        <option value="Китай">Китай</option>
+                        <option value="США">США</option>
+                        <option value="Армения">Армения</option>
+                        <option value="Азербайджан">Азербайджан</option>
+                        <option value="ОАЭ">ОАЭ</option>
+                        <option value="Турция">Турция</option>
+                        <option value="Испания">Испания</option>
+                        <option value="Кыргызстан">Кыргызстан</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="city">Город*</label>
+                    <input type="text" id="city" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="weight">Вес (кг)*</label>
+                    <input type="number" id="weight" min="0.01" step="0.01" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="units">Количество единиц*</label>
+                    <input type="number" id="units" min="1" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="orders">Количество заказов*</label>
+                    <input type="number" id="orders" min="1" required>
+                </div>
+                
+                <div class="form-group" id="longest-side-group">
+                    <label for="longest-side">Самая длинная сторона (см)*</label>
+                    <input type="number" id="longest-side" min="1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="storage-days">Дни хранения</label>
+                    <input type="number" id="storage-days" min="0" value="0">
+                </div>
+                
+                <div class="form-group">
+                    <label for="declared-value">Объявленная стоимость</label>
+                    <input type="number" id="declared-value" min="0" value="0">
+                </div>
+                
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="express">
+                    <label for="express">Экспресс-сборка</label>
+                </div>
+                
+                <button id="calculate-btn">Рассчитать</button>
+            </div>
+            
+            <div class="result-section">
+                <h2>Результаты расчета</h2>
+                <div id="loading" class="loading">Загрузка тарифов...</div>
+                <div id="results">
+                    <table id="results-table">
+                        <thead>
+                            <tr>
+                                <th>Тип операции</th>
+                                <th>Количество</th>
+                                <th>Тариф</th>
+                                <th>Итого</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Результаты будут здесь -->
+                        </tbody>
+                    </table>
+                    
+                    <div class="total">
+                        <strong>Общая сумма: </strong>
+                        <span id="total-amount">0</span>
+                        <span id="currency"></span>
+                    </div>
+                    
+                    <button id="export-btn" disabled>Скачать Excel</button>
+                    
+                    <div class="disclaimer">
+                        <p>Цены указаны без НДС. Это примерный расчет и не является публичной офертой.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

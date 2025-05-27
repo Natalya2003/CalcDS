@@ -1,5 +1,5 @@
 // Конфигурация
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzwE3Sd-oXifxE8r7ZJfISPCIOwKOjyLeOBmO9umALtk11nK1v5fD5qLW-TR04PbqGqFA/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwTKFsqtUFFS1QXmv-4ik8aM0UEDq_vxnpTU9MQdKjDfNxOVdnQdhKJWTJBd01omThRVA/exec';
 const CACHE_TTL = 5 * 60 * 1000; // 5 минут кэширования
 
 // Глобальные переменные

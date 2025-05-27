@@ -2,340 +2,135 @@
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzlnU77HvUMHMW41fGuKl1-gQ3k6s_qSzDYQ_t1IlTu85GGHEtMDSP3Gwm2KX5IPMSZ/exec';
 const CACHE_TTL = 5 * 60 * 1000; // 5 минут кэширования
 
-// Глобальные переменные
 let tariffs = [];
 let currentResults = [];
 let currentCurrency = '';
 let lastCacheTime = 0;
 
-// DOM элементы
-const elements = {
-    model: document.getElementById('model'),
-    country: document.getElementById('country'),
-    city: document.getElementById('city'),
-    weight: document.getElementById('weight'),
-    units: document.getElementById('units'),
-    orders: document.getElementById('orders'),
-    longestSide: document.getElementById('longest-side'),
-    storageDays: document.getElementById('storage-days'),
-    declaredValue: document.getElementById('declared-value'),
-    express: document.getElementById('express'),
-    calculateBtn: document.getElementById('calculate-btn'),
-    exportBtn: document.getElementById('export-btn'),
-    resultsTable: document.getElementById('results-table').getElementsByTagName('tbody')[0],
-    totalAmount: document.getElementById('total-amount'),
-    currency: document.getElementById('currency'),
-    loading: document.getElementById('loading'),
-    results: document.getElementById('results'),
-    longestSideGroup: document.getElementById('longest-side-group')
-};
-
-// Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
     loadTariffs();
 });
 
 function setupEventListeners() {
-    elements.model.addEventListener('change', function() {
-        elements.longestSideGroup.style.display = this.value === 'FBS' ? 'none' : 'block';
-        this.value === 'FBS' 
-            ? elements.longestSide.removeAttribute('required')
-            : elements.longestSide.setAttribute('required', '');
+    document.getElementById('model').addEventListener('change', function() {
+        document.getElementById('longest-side-group').style.display = this.value === 'FBS' ? 'none' : 'block';
     });
-
-    elements.calculateBtn.addEventListener('click', calculateCosts);
-    elements.exportBtn.addEventListener('click', exportToExcel);
+    document.getElementById('calculate-btn').addEventListener('click', calculateCosts);
+    document.getElementById('export-btn').addEventListener('click', exportToExcel);
 }
 
 async function loadTariffs() {
     try {
-        // Проверка кэша
         const now = Date.now();
-        if (now - lastCacheTime < CACHE_TTL && tariffs.length > 0) {
-            return;
-        }
+        if (now - lastCacheTime < CACHE_TTL && tariffs.length > 0) return;
 
-        showLoading(true);
-        
-        const response = await fetch(`${APPS_SCRIPT_URL}?action=getTariffs&t=${now}`, {
-            method: 'GET',
-            cache: 'no-cache'
-        });
-
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=getTariffs&t=${now}`);
         const data = await response.json();
-        
         if (data.status === 'success' && data.tariffs) {
             tariffs = data.tariffs;
             lastCacheTime = now;
-            showLoading(false);
         } else {
             throw new Error(data.message || 'Invalid data format');
         }
     } catch (error) {
         console.error('Ошибка загрузки тарифов:', error);
-        elements.loading.innerHTML = `<div class="error">Ошибка: ${error.message}</div>`;
     }
-}
-
-function showLoading(show) {
-    elements.loading.style.display = show ? 'block' : 'none';
-    elements.results.style.display = show ? 'none' : 'block';
 }
 
 function calculateCosts() {
-    if (!validateInputs()) return;
+    const model = document.getElementById('model').value;
+    const country = document.getElementById('country').value;
+    const city = document.getElementById('city').value;
+    const weight = parseFloat(document.getElementById('weight').value);
+    const units = parseInt(document.getElementById('units').value);
+    const orders = parseInt(document.getElementById('orders').value);
+    const longestSide = model === 'FBO' ? parseFloat(document.getElementById('longest-side').value) : 0;
+    const storageDays = parseInt(document.getElementById('storage-days').value) || 0;
+    const declaredValue = parseFloat(document.getElementById('declared-value').value) || 0;
+    const isExpress = document.getElementById('express').checked;
 
-    const params = getFormParams();
-    currentCurrency = getCurrencyForCountry(params.country);
-    currentResults = calculateAllCosts(params);
+    currentCurrency = getCurrencyForCountry(country);
+    currentResults = [];
+
+    const add = (name, qty, rate, total) => currentResults.push({ name, qty, rate, total });
+
+    const getRate = (type, value) => {
+        const match = tariffs.filter(t => t['Тип операции'] === type);
+        let rate = 0;
+        match.forEach(t => {
+            const limitKey = Object.keys(t).find(k => k.toLowerCase().includes('до'));
+            const limit = parseFloat(t[limitKey]) || Infinity;
+            if (value <= limit) rate = parseFloat(t[getCountryColumn(country)]) || 0;
+        });
+        return rate;
+    };
+
+    const rcp = getRate('Приемка', weight);
+    add('Приемка', units, rcp, rcp * units);
+
+    if (model === 'FBO') {
+        const prep = getRate('Подготовка FBO', longestSide);
+        add('Подготовка FBO', units, prep, prep * units);
+    }
+
+    if (storageDays > 0) {
+        const store = getRate('Хранение', weight);
+        add('Хранение', `${weight} кг × ${storageDays} дн.`, store, store * storageDays);
+    }
+
+    const assembly = getRate('Сборка заказа', weight);
+    add('Сборка заказа', orders, assembly, assembly * orders);
+
+    if (isExpress) {
+        const express = getRate('Экспресс-сборка', orders);
+        add('Экспресс-сборка', orders, express, express * orders);
+    }
+
+    if (declaredValue > 0) {
+        const declared = declaredValue * 0.0001;
+        add('Сбор за объявленную стоимость', declaredValue, '0.01%', declared);
+    }
+
+    if (model === 'FBS') {
+        const delivery = getRate('Доставка FBS', weight);
+        add('Доставка FBS', weight, delivery, delivery);
+    }
 
     displayResults();
-    saveCalculation(params);
-}
-
-function getFormParams() {
-    return {
-        model: elements.model.value,
-        country: elements.country.value,
-        city: elements.city.value,
-        weight: parseFloat(elements.weight.value),
-        units: parseInt(elements.units.value),
-        orders: parseInt(elements.orders.value),
-        longestSide: elements.model.value === 'FBO' ? parseInt(elements.longestSide.value) : 0,
-        storageDays: parseInt(elements.storageDays.value) || 0,
-        declaredValue: parseFloat(elements.declaredValue.value) || 0,
-        isExpress: elements.express.checked
-    };
-}
-
-function validateInputs() {
-    const requiredInputs = [
-        { el: elements.model, msg: 'Выберите модель' },
-        { el: elements.country, msg: 'Выберите страну' },
-        { el: elements.city, msg: 'Введите город' },
-        { el: elements.weight, msg: 'Введите вес (больше 0)', validate: v => v > 0 },
-        { el: elements.units, msg: 'Введите количество единиц (больше 0)', validate: v => v > 0 },
-        { el: elements.orders, msg: 'Введите количество заказов (больше 0)', validate: v => v > 0 }
-    ];
-
-    if (elements.model.value === 'FBO') {
-        requiredInputs.push({ 
-            el: elements.longestSide, 
-            msg: 'Введите длину самой длинной стороны (больше 0)', 
-            validate: v => v > 0 
-        });
-    }
-
-    let isValid = true;
-
-    requiredInputs.forEach(input => {
-        const value = input.el.value;
-        let valid = value;
-        
-        if (input.validate) {
-            valid = input.validate(parseFloat(value));
-        }
-
-        if (!valid) {
-            input.el.style.borderColor = 'red';
-            isValid = false;
-            if (!document.getElementById(`error-${input.el.id}`)) {
-                const errorEl = document.createElement('div');
-                errorEl.id = `error-${input.el.id}`;
-                errorEl.className = 'error';
-                errorEl.textContent = input.msg;
-                input.el.parentNode.insertBefore(errorEl, input.el.nextSibling);
-            }
-        } else {
-            input.el.style.borderColor = '#ddd';
-            const errorEl = document.getElementById(`error-${input.el.id}`);
-            if (errorEl) errorEl.remove();
-        }
-    });
-
-    return isValid;
-}
-
-function calculateAllCosts(params) {
-    const results = [];
-    const { model, country, weight, units, orders, longestSide, storageDays, declaredValue, isExpress } = params;
-
-    // 1. Приемка
-    addOperationResult(results, 'Приемка', weight, calculateOperationCost('Приемка', weight, country));
-
-    // 2. Подготовка товара (FBO)
-    if (model === 'FBO') {
-        addOperationResult(results, 'Подготовка FBO', units, 
-            calculateOperationCost('Подготовка FBO', longestSide, country) * units);
-    }
-
-    // 3. Хранение
-    if (storageDays > 0) {
-        addOperationResult(results, 'Хранение', `${weight} кг × ${storageDays} дн.`, 
-            calculateOperationCost('Хранение', weight, country) * storageDays);
-    }
-
-    // 4. Сборка заказа
-    addOperationResult(results, 'Сборка заказа', orders, 
-        calculateOperationCost('Сборка заказа', weight, country) * orders);
-
-    // 5. Экспресс-сборка
-    if (isExpress) {
-        addOperationResult(results, 'Экспресс-сборка', orders, 
-            calculateOperationCost('Экспресс-сборка', orders, country));
-    }
-
-    // 6. Сбор за объявленную стоимость
-    if (declaredValue > 0) {
-        addOperationResult(results, 'Сбор за объявленную стоимость', declaredValue, 
-            declaredValue * 0.0001, '0.01%');
-    }
-
-    // 7. Доставка (FBS)
-    if (model === 'FBS') {
-        addOperationResult(results, 'Доставка FBS', weight, 
-            calculateOperationCost('Доставка FBS', weight, country));
-    }
-
-    return results;
-}
-
-function addOperationResult(results, operation, quantity, total, customRate = null) {
-    if (total <= 0) return;
-
-    results.push({
-        operation,
-        quantity: typeof quantity === 'number' ? quantity.toFixed(2) : quantity,
-        rate: customRate || (total / (typeof quantity === 'number' ? quantity : 1)).toFixed(2),
-        total
-    });
-}
-
-function calculateOperationCost(operationType, value, country) {
-    const operationTariffs = tariffs.filter(t => t['Тип операции'] === operationType);
-    if (operationTariffs.length === 0) return 0;
-
-    let applicableTariff = operationTariffs.find(t => {
-        const maxValue = parseFloat(t['До ...']) || Infinity;
-        return value <= maxValue;
-    }) || operationTariffs[operationTariffs.length - 1];
-
-    const countryColumn = getCountryColumn(country);
-    return parseFloat(applicableTariff[countryColumn]) || 0;
 }
 
 function getCountryColumn(country) {
-    const countryColumns = {
-        'Россия': 'Рубль (Россия)',
-        'Казахстан': 'Тенге (Казахстан)',
-        'Беларусь': 'Бел. рубль (Беларусь)',
-        'Китай': 'Юань (Китай)',
-        'США': 'Доллар (США)',
-        'Армения': 'Драм (Армения)',
-        'Азербайджан': 'Манат (Азербайджан)',
-        'ОАЭ': 'Дирхам (ОАЭ)',
-        'Турция': 'Лира (Турция)',
-        'Испания': 'Евро (Испания)',
-        'Кыргызстан': 'Сом (Кыргызстан)'
+    const map = {
+        'Россия': 'Рубль (Россия)', 'Казахстан': 'Тенге (Казахстан)', 'Беларусь': 'Бел. рубль (Беларусь)',
+        'Китай': 'Юань (Китай)', 'США': 'Доллар (США)', 'Армения': 'Драм (Армения)',
+        'Азербайджан': 'Манат (Азербайджан)', 'ОАЭ': 'Дирхам (ОАЭ)', 'Турция': 'Лира (Турция)',
+        'Испания': 'Евро (Испания)', 'Кыргызстан': 'Сом (Кыргызстан)'
     };
-    
-    return countryColumns[country] || 'Рубль (Россия)';
+    return map[country] || 'Рубль (Россия)';
 }
 
 function getCurrencyForCountry(country) {
-    const currencies = {
-        'Россия': '₽',
-        'Казахстан': '₸',
-        'Беларусь': 'Br',
-        'Китай': '¥',
-        'США': '$',
-        'Армения': '֏',
-        'Азербайджан': '₼',
-        'ОАЭ': 'AED',
-        'Турция': '₺',
-        'Испания': '€',
-        'Кыргызстан': 'с'
+    const map = {
+        'Россия': '₽', 'Казахстан': '₸', 'Беларусь': 'Br', 'Китай': '¥',
+        'США': '$', 'Армения': '֏', 'Азербайджан': '₼', 'ОАЭ': 'AED',
+        'Турция': '₺', 'Испания': '€', 'Кыргызстан': 'с'
     };
-    
-    return currencies[country] || '₽';
+    return map[country] || '₽';
 }
 
 function displayResults() {
-    elements.resultsTable.innerHTML = '';
+    const table = document.querySelector('#results-table tbody');
+    table.innerHTML = '';
     let total = 0;
-
-    currentResults.forEach(item => {
-        const row = elements.resultsTable.insertRow();
-        
-        row.insertCell(0).textContent = item.operation;
-        row.insertCell(1).textContent = item.quantity;
-        row.insertCell(2).textContent = typeof item.rate === 'string' 
-            ? item.rate 
-            : `${item.rate} ${currentCurrency}`;
-        
-        const totalCell = row.insertCell(3);
-        totalCell.textContent = `${item.total.toFixed(2)} ${currentCurrency}`;
-        totalCell.classList.add('total-cell');
-        
-        total += item.total;
+    currentResults.forEach(r => {
+        const row = table.insertRow();
+        row.insertCell(0).textContent = r.name;
+        row.insertCell(1).textContent = r.qty;
+        row.insertCell(2).textContent = typeof r.rate === 'number' ? `${r.rate.toFixed(2)} ${currentCurrency}` : r.rate;
+        row.insertCell(3).textContent = `${r.total.toFixed(2)} ${currentCurrency}`;
+        total += r.total;
     });
-
-    elements.totalAmount.textContent = total.toFixed(2);
-    elements.currency.textContent = currentCurrency;
-    elements.exportBtn.disabled = false;
-}
-
-async function saveCalculation(params) {
-    try {
-        const total = currentResults.reduce((sum, item) => sum + item.total, 0);
-        
-        const response = await fetch(APPS_SCRIPT_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                action: 'saveCalculation',
-                data: {
-                    ...params,
-                    total: parseFloat(total.toFixed(2)),
-                    date: new Date().toISOString()
-                }
-            })
-        });
-
-        if (!response.ok) throw new Error('Ошибка сохранения');
-        
-        const result = await response.json();
-        if (result.status !== 'success') {
-            console.warn('Не удалось сохранить расчет:', result.message);
-        }
-    } catch (error) {
-        console.error('Ошибка при сохранении расчета:', error);
-    }
-}
-
-function exportToExcel() {
-    if (currentResults.length === 0) return;
-
-    const exportData = [
-        ['Тип операции', 'Количество', 'Тариф', 'Итого'],
-        ...currentResults.map(item => [
-            item.operation,
-            item.quantity,
-            typeof item.rate === 'string' ? item.rate : `${item.rate} ${currentCurrency}`,
-            `${item.total.toFixed(2)} ${currentCurrency}`
-        ]),
-        ['', '', 'Общая сумма:', `${elements.totalAmount.textContent} ${currentCurrency}`]
-    ];
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(exportData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Расчет фулфилмента');
-
-    const date = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `Расчет фулфилмента ${date}.xlsx`);
+    document.getElementById('total-amount').textContent = total.toFixed(2);
+    document.getElementById('currency').textContent = currentCurrency;
 }

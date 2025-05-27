@@ -27,14 +27,15 @@ async function loadTariffs() {
 
         const response = await fetch(`${APPS_SCRIPT_URL}?action=getTariffs&t=${now}`);
         const data = await response.json();
-        if (data.status === 'success' && data.tariffs) {
-            tariffs = data.tariffs;
+        if (data.status === 'success' && Array.isArray(data.tariffs)) {
+            tariffs = data.tariffs.filter(t => t['Тип операции'] && t['Тип операции'].trim() !== '');
             lastCacheTime = now;
         } else {
-            throw new Error(data.message || 'Invalid data format');
+            throw new Error('Данные из таблицы некорректны или пусты');
         }
     } catch (error) {
         console.error('Ошибка загрузки тарифов:', error);
+        alert(`Ошибка загрузки тарифов: ${error.message}`);
     }
 }
 
@@ -58,10 +59,16 @@ function calculateCosts() {
     const getRate = (type, value) => {
         const match = tariffs.filter(t => t['Тип операции'] === type);
         let rate = 0;
+
         match.forEach(t => {
-            const limitKey = Object.keys(t).find(k => k.toLowerCase().includes('до'));
+            const limitKeys = Object.keys(t).filter(k => k.toLowerCase().includes('до'));
+            if (limitKeys.length === 0) return;
+            const limitKey = limitKeys[0];
             const limit = parseFloat(t[limitKey]) || Infinity;
-            if (value <= limit) rate = parseFloat(t[getCountryColumn(country)]) || 0;
+            if (value <= limit) {
+                const col = getCountryColumn(country);
+                rate = parseFloat(t[col]) || 0;
+            }
         });
         return rate;
     };
@@ -98,6 +105,10 @@ function calculateCosts() {
     }
 
     displayResults();
+    saveCalculation({
+        model, country, city, weight, units, orders,
+        longestSide, storageDays, declaredValue, isExpress
+    });
 }
 
 function getCountryColumn(country) {
@@ -133,4 +144,51 @@ function displayResults() {
     });
     document.getElementById('total-amount').textContent = total.toFixed(2);
     document.getElementById('currency').textContent = currentCurrency;
+}
+
+async function saveCalculation(params) {
+    try {
+        const total = currentResults.reduce((sum, item) => sum + item.total, 0);
+        const response = await fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'saveCalculation',
+                data: {
+                    ...params,
+                    total: parseFloat(total.toFixed(2)),
+                    date: new Date().toISOString()
+                }
+            })
+        });
+
+        const result = await response.json();
+        if (result.status !== 'success') {
+            console.warn('Не удалось сохранить расчет:', result.message);
+        }
+    } catch (error) {
+        console.error('Ошибка при сохранении расчета:', error);
+    }
+}
+
+function exportToExcel() {
+    if (currentResults.length === 0) return;
+
+    const exportData = [
+        ['Тип операции', 'Количество', 'Тариф', 'Итого'],
+        ...currentResults.map(item => [
+            item.name,
+            item.qty,
+            typeof item.rate === 'string' ? item.rate : `${item.rate.toFixed(2)} ${currentCurrency}`,
+            `${item.total.toFixed(2)} ${currentCurrency}`
+        ]),
+        ['', '', 'Общая сумма:', `${document.getElementById('total-amount').textContent} ${currentCurrency}`]
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(exportData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Расчет фулфилмента');
+
+    const date = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `Расчет фулфилмента ${date}.xlsx`);
 }

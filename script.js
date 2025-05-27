@@ -1,4 +1,3 @@
-// Конфигурация
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzlnU77HvUMHMW41fGuKl1-gQ3k6s_qSzDYQ_t1IlTu85GGHEtMDSP3Gwm2KX5IPMSZ/exec';
 const CACHE_TTL = 5 * 60 * 1000;
 
